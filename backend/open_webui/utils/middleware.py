@@ -26,6 +26,7 @@ from starlette.responses import Response, StreamingResponse
 
 from open_webui.models.chats import Chats
 from open_webui.models.users import Users
+from open_webui.models.companies import CompanyModel, Companies
 from open_webui.socket.main import (
     get_event_call,
     get_event_emitter,
@@ -36,6 +37,7 @@ from open_webui.routers.tasks import (
     generate_title,
     generate_image_prompt,
     generate_chat_tags,
+    generate_chat_companies,
 )
 from open_webui.routers.retrieval import process_web_search, SearchForm
 from open_webui.routers.images import image_generations, GenerateImageForm
@@ -170,7 +172,7 @@ async def chat_completion_tools_handler(
             return body, {}
 
         try:
-            content = content[content.find("{") : content.rfind("}") + 1]
+            content = content[content.find("{"): content.rfind("}") + 1]
             if not content:
                 raise Exception("No JSON object found in the response")
 
@@ -653,7 +655,8 @@ async def process_chat_payload(request, form_data, metadata, user, model):
     sources = []
 
     user_message = get_last_user_message(form_data["messages"])
-    model_knowledge = model.get("info", {}).get("meta", {}).get("knowledge", False)
+    model_knowledge = model.get("info", {}).get(
+        "meta", {}).get("knowledge", False)
 
     if model_knowledge:
         await event_emitter(
@@ -740,7 +743,7 @@ async def process_chat_payload(request, form_data, metadata, user, model):
     files = form_data.pop("files", None)
     # Remove files duplicates
     if files:
-        files = list({json.dumps(f, sort_keys=True): f for f in files}.values())
+        files = list({json.dumps(f, sort_keys=True)                     : f for f in files}.values())
 
     metadata = {
         **metadata,
@@ -832,7 +835,8 @@ async def process_chat_payload(request, form_data, metadata, user, model):
             )
 
     # If there are citations, add them to the data_items
-    sources = [source for source in sources if source.get("source", {}).get("name", "")]
+    sources = [source for source in sources if source.get(
+        "source", {}).get("name", "")]
 
     if len(sources) > 0:
         events.append({"sources": sources})
@@ -857,8 +861,10 @@ async def process_chat_response(
     request, response, form_data, user, events, metadata, tasks
 ):
     async def background_tasks_handler():
-        message_map = Chats.get_messages_by_chat_id(metadata["chat_id"])
-        message = message_map.get(metadata["message_id"]) if message_map else None
+        chat_id = metadata["chat_id"]
+        message_id = metadata["message_id"]
+        message_map = Chats.get_messages_by_chat_id(chat_id)
+        message = message_map.get(message_id) if message_map else None
 
         if message:
             messages = get_message_list(message_map, message.get("id"))
@@ -871,7 +877,7 @@ async def process_chat_response(
                             {
                                 "model": message["model"],
                                 "messages": messages,
-                                "chat_id": metadata["chat_id"],
+                                "chat_id": chat_id,
                             },
                             user,
                         )
@@ -887,7 +893,7 @@ async def process_chat_response(
                                 title_string = ""
 
                             title_string = title_string[
-                                title_string.find("{") : title_string.rfind("}") + 1
+                                title_string.find("{"): title_string.rfind("}") + 1
                             ]
 
                             try:
@@ -900,7 +906,8 @@ async def process_chat_response(
                             if not title:
                                 title = messages[0].get("content", "New Chat")
 
-                            Chats.update_chat_title_by_id(metadata["chat_id"], title)
+                            Chats.update_chat_title_by_id(
+                                metadata["chat_id"], title)
 
                             await event_emitter(
                                 {
@@ -911,7 +918,8 @@ async def process_chat_response(
                     elif len(messages) == 2:
                         title = messages[0].get("content", "New Chat")
 
-                        Chats.update_chat_title_by_id(metadata["chat_id"], title)
+                        Chats.update_chat_title_by_id(
+                            metadata["chat_id"], title)
 
                         await event_emitter(
                             {
@@ -926,7 +934,7 @@ async def process_chat_response(
                         {
                             "model": message["model"],
                             "messages": messages,
-                            "chat_id": metadata["chat_id"],
+                            "chat_id": chat_id,
                         },
                         user,
                     )
@@ -942,13 +950,13 @@ async def process_chat_response(
                             tags_string = ""
 
                         tags_string = tags_string[
-                            tags_string.find("{") : tags_string.rfind("}") + 1
+                            tags_string.find("{"): tags_string.rfind("}") + 1
                         ]
 
                         try:
                             tags = json.loads(tags_string).get("tags", [])
                             Chats.update_chat_tags_by_id(
-                                metadata["chat_id"], tags, user
+                                chat_id, tags, user
                             )
 
                             await event_emitter(
@@ -958,6 +966,87 @@ async def process_chat_response(
                                 }
                             )
                         except Exception as e:
+                            pass
+
+                if TASKS.COMPANIES_GENERATION in tasks and tasks[TASKS.COMPANIES_GENERATION]:
+                    res = await generate_chat_companies(
+                        request,
+                        {
+                            "model": message["model"],
+                            "messages": messages,
+                            "chat_id": chat_id,
+                        },
+                        user,
+                    )
+
+                    if res and isinstance(res, dict):
+                        if len(res.get("choices", [])) == 1:
+                            companies_string = (
+                                res.get("choices", [])[0]
+                                .get("message", {})
+                                .get("content", "")
+                            )
+                        else:
+                            companies_string = ""
+
+                        companies_string = companies_string[
+                            companies_string.find("{"): companies_string.rfind("}") + 1
+                        ]
+
+                        try:
+                            company_map = {}
+                            all_companies = Companies.get_companies()
+                            for company in all_companies:
+                                for nickname in company.nicknames:
+                                    company_map[nickname] = str(company)
+                            # Override nickname with name
+                            for company in all_companies:
+                                company_map[company.name] = str(company)
+                            
+                            company_names: list[str] = json.loads(
+                                companies_string).get("companies", [])
+                            
+                            # Replace company names in message
+                            data: dict = {}
+                            for company_name in company_names:
+                                default_name: str = f"{company_name}[[company:?]]"
+                                ignore_name: str = f"{company_name}[[company:-]]"
+                                full_name: str = company_map.get(
+                                    company_name, default_name)
+                                for msg in messages:
+                                    if full_name in msg["content"] or ignore_name in msg["content"]:
+                                        pass
+                                    elif default_name in msg["content"]:
+                                        new_content = msg["content"].replace(
+                                            default_name, full_name)
+                                        Chats.upsert_message_to_chat_by_id_and_message_id(
+                                            chat_id,
+                                            msg["id"],
+                                            {
+                                                "content": new_content,
+                                            },
+                                        )
+                                        data[msg["id"]] = new_content
+                                    elif company_name in msg["content"]:
+                                        new_content = msg["content"].replace(
+                                            company_name, full_name)
+                                        Chats.upsert_message_to_chat_by_id_and_message_id(
+                                            chat_id,
+                                            msg["id"],
+                                            {
+                                                "content": new_content,
+                                            },
+                                        )
+                                        data[msg["id"]] = new_content
+
+                            await event_emitter(
+                                {
+                                    "type": "chat:companies",
+                                    "data": data,
+                                }
+                            )
+                        except Exception as e:
+                            log.info(f"background_tasks_handler... error: {e}")
                             pass
 
     event_emitter = None
@@ -1064,7 +1153,7 @@ async def process_chat_response(
         def split_content_and_whitespace(content):
             content_stripped = content.rstrip()
             original_whitespace = (
-                content[len(content_stripped) :]
+                content[len(content_stripped):]
                 if len(content) > len(content_stripped)
                 else ""
             )
@@ -1245,7 +1334,7 @@ async def process_chat_response(
                                 : match.start()
                             ]  # Content before opening tag
                             after_tag = content[
-                                match.end() :
+                                match.end():
                             ]  # Content after opening tag
 
                             # Remove the start tag and after from the currently handling text block
@@ -1291,7 +1380,8 @@ async def process_chat_response(
                         ).strip()
 
                         end_tag_regex = re.compile(end_tag_pattern, re.DOTALL)
-                        split_content = end_tag_regex.split(block_content, maxsplit=1)
+                        split_content = end_tag_regex.split(
+                            block_content, maxsplit=1)
 
                         # Content inside the tag
                         block_content = (
@@ -1300,7 +1390,8 @@ async def process_chat_response(
 
                         # Leftover content (everything after `</tag>`)
                         leftover_content = (
-                            split_content[1].strip() if len(split_content) > 1 else ""
+                            split_content[1].strip() if len(
+                                split_content) > 1 else ""
                         )
 
                         if block_content:
@@ -1427,7 +1518,8 @@ async def process_chat_response(
                     response_tool_calls = []
 
                     async for line in response.body_iterator:
-                        line = line.decode("utf-8") if isinstance(line, bytes) else line
+                        line = line.decode(
+                            "utf-8") if isinstance(line, bytes) else line
                         data = line
 
                         # Skip empty lines
@@ -1439,7 +1531,7 @@ async def process_chat_response(
                             continue
 
                         # Remove the prefix
-                        data = data[len("data:") :].strip()
+                        data = data[len("data:"):].strip()
 
                         try:
                             data = json.loads(data)
@@ -1459,11 +1551,13 @@ async def process_chat_response(
                                     continue
 
                                 delta = choices[0].get("delta", {})
-                                delta_tool_calls = delta.get("tool_calls", None)
+                                delta_tool_calls = delta.get(
+                                    "tool_calls", None)
 
                                 if delta_tool_calls:
                                     for delta_tool_call in delta_tool_calls:
-                                        tool_call_index = delta_tool_call.get("index")
+                                        tool_call_index = delta_tool_call.get(
+                                            "index")
 
                                         if tool_call_index is not None:
                                             if (
@@ -1620,13 +1714,15 @@ async def process_chat_response(
                     results = []
                     for tool_call in response_tool_calls:
                         tool_call_id = tool_call.get("id", "")
-                        tool_name = tool_call.get("function", {}).get("name", "")
+                        tool_name = tool_call.get(
+                            "function", {}).get("name", "")
 
                         tool_function_params = {}
                         try:
                             # json.loads cannot be used because some models do not produce valid JSON
                             tool_function_params = ast.literal_eval(
-                                tool_call.get("function", {}).get("arguments", "{}")
+                                tool_call.get("function", {}).get(
+                                    "arguments", "{}")
                             )
                         except Exception as e:
                             log.debug(e)
@@ -1781,7 +1877,8 @@ async def process_chat_response(
 
                                                 # ensure the path exists
                                                 os.makedirs(
-                                                    os.path.join(CACHE_DIR, "images"),
+                                                    os.path.join(
+                                                        CACHE_DIR, "images"),
                                                     exist_ok=True,
                                                 )
 
@@ -1801,7 +1898,8 @@ async def process_chat_response(
                                                     f"![Output Image {idx}](/cache/images/{id}.png)"
                                                 )
 
-                                        output["stdout"] = "\n".join(stdoutLines)
+                                        output["stdout"] = "\n".join(
+                                            stdoutLines)
 
                                     result = output.get("result", "")
 
@@ -1813,7 +1911,8 @@ async def process_chat_response(
 
                                                 # ensure the path exists
                                                 os.makedirs(
-                                                    os.path.join(CACHE_DIR, "images"),
+                                                    os.path.join(
+                                                        CACHE_DIR, "images"),
                                                     exist_ok=True,
                                                 )
 
@@ -1833,7 +1932,8 @@ async def process_chat_response(
                                                     f"![Output Image {idx}](/cache/images/{id}.png)"
                                                 )
 
-                                        output["result"] = "\n".join(resultLines)
+                                        output["result"] = "\n".join(
+                                            resultLines)
                         except Exception as e:
                             output = str(e)
 
@@ -1855,7 +1955,8 @@ async def process_chat_response(
                             }
                         )
 
-                        print(content_blocks, serialize_content_blocks(content_blocks))
+                        print(content_blocks,
+                              serialize_content_blocks(content_blocks))
 
                         try:
                             res = await generate_chat_completion(

@@ -1,0 +1,1 @@
+docker-compose stop open-webui; docker-compose rm -f open-webui; docker-compose up -d --build open-webui

@@ -19,6 +19,10 @@
 		{
 			name: 'tag:',
 			description: $i18n.t('search for tags')
+		},
+		{
+			name: 'company:',
+			description: $i18n.t('search for companies')
 		}
 	];
 	let focused = false;

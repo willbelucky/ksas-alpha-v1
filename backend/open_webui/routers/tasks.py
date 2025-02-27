@@ -13,6 +13,7 @@ from open_webui.utils.task import (
     image_prompt_generation_template,
     autocomplete_generation_template,
     tags_generation_template,
+    companies_generation_template,
     emoji_generation_template,
     moa_response_generation_template,
 )
@@ -25,6 +26,7 @@ from open_webui.utils.task import get_task_model_id
 from open_webui.config import (
     DEFAULT_TITLE_GENERATION_PROMPT_TEMPLATE,
     DEFAULT_TAGS_GENERATION_PROMPT_TEMPLATE,
+    DEFAULT_COMPANIES_GENERATION_PROMPT_TEMPLATE,
     DEFAULT_IMAGE_PROMPT_GENERATION_PROMPT_TEMPLATE,
     DEFAULT_QUERY_GENERATION_PROMPT_TEMPLATE,
     DEFAULT_AUTOCOMPLETE_GENERATION_PROMPT_TEMPLATE,
@@ -58,6 +60,8 @@ async def get_task_config(request: Request, user=Depends(get_verified_user)):
         "AUTOCOMPLETE_GENERATION_INPUT_MAX_LENGTH": request.app.state.config.AUTOCOMPLETE_GENERATION_INPUT_MAX_LENGTH,
         "TAGS_GENERATION_PROMPT_TEMPLATE": request.app.state.config.TAGS_GENERATION_PROMPT_TEMPLATE,
         "ENABLE_TAGS_GENERATION": request.app.state.config.ENABLE_TAGS_GENERATION,
+        "COMPANIES_GENERATION_PROMPT_TEMPLATE": request.app.state.config.COMPANIES_GENERATION_PROMPT_TEMPLATE,
+        "ENABLE_COMPANIES_GENERATION": request.app.state.config.ENABLE_COMPANIES_GENERATION,
         "ENABLE_TITLE_GENERATION": request.app.state.config.ENABLE_TITLE_GENERATION,
         "ENABLE_SEARCH_QUERY_GENERATION": request.app.state.config.ENABLE_SEARCH_QUERY_GENERATION,
         "ENABLE_RETRIEVAL_QUERY_GENERATION": request.app.state.config.ENABLE_RETRIEVAL_QUERY_GENERATION,
@@ -76,6 +80,8 @@ class TaskConfigForm(BaseModel):
     AUTOCOMPLETE_GENERATION_INPUT_MAX_LENGTH: int
     TAGS_GENERATION_PROMPT_TEMPLATE: str
     ENABLE_TAGS_GENERATION: bool
+    COMPANIES_GENERATION_PROMPT_TEMPLATE: str
+    ENABLE_COMPANIES_GENERATION: bool
     ENABLE_SEARCH_QUERY_GENERATION: bool
     ENABLE_RETRIEVAL_QUERY_GENERATION: bool
     QUERY_GENERATION_PROMPT_TEMPLATE: str
@@ -108,6 +114,10 @@ async def update_task_config(
         form_data.TAGS_GENERATION_PROMPT_TEMPLATE
     )
     request.app.state.config.ENABLE_TAGS_GENERATION = form_data.ENABLE_TAGS_GENERATION
+    request.app.state.config.COMPANIES_GENERATION_PROMPT_TEMPLATE = (
+        form_data.COMPANIES_GENERATION_PROMPT_TEMPLATE
+    )
+    request.app.state.config.ENABLE_COMPANIES_GENERATION = form_data.ENABLE_COMPANIES_GENERATION
     request.app.state.config.ENABLE_SEARCH_QUERY_GENERATION = (
         form_data.ENABLE_SEARCH_QUERY_GENERATION
     )
@@ -132,6 +142,8 @@ async def update_task_config(
         "AUTOCOMPLETE_GENERATION_INPUT_MAX_LENGTH": request.app.state.config.AUTOCOMPLETE_GENERATION_INPUT_MAX_LENGTH,
         "TAGS_GENERATION_PROMPT_TEMPLATE": request.app.state.config.TAGS_GENERATION_PROMPT_TEMPLATE,
         "ENABLE_TAGS_GENERATION": request.app.state.config.ENABLE_TAGS_GENERATION,
+        "COMPANIES_GENERATION_PROMPT_TEMPLATE": request.app.state.config.COMPANIES_GENERATION_PROMPT_TEMPLATE,
+        "ENABLE_COMPANIES_GENERATION": request.app.state.config.ENABLE_COMPANIES_GENERATION,
         "ENABLE_SEARCH_QUERY_GENERATION": request.app.state.config.ENABLE_SEARCH_QUERY_GENERATION,
         "ENABLE_RETRIEVAL_QUERY_GENERATION": request.app.state.config.ENABLE_RETRIEVAL_QUERY_GENERATION,
         "QUERY_GENERATION_PROMPT_TEMPLATE": request.app.state.config.QUERY_GENERATION_PROMPT_TEMPLATE,
@@ -289,6 +301,76 @@ async def generate_chat_tags(
             "chat_id": form_data.get("chat_id", None),
         },
     }
+
+    try:
+        return await generate_chat_completion(request, form_data=payload, user=user)
+    except Exception as e:
+        log.error(f"Error generating chat completion: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": "An internal error has occurred."},
+        )
+
+
+@router.post("/companies/completions")
+async def generate_chat_companies(
+    request: Request, form_data: dict, user=Depends(get_verified_user)
+):
+
+    if not request.app.state.config.ENABLE_COMPANIES_GENERATION:
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"detail": "Companies generation is disabled"},
+        )
+
+    if getattr(request.state, "direct", False) and hasattr(request.state, "model"):
+        models = {
+            request.state.model["id"]: request.state.model,
+        }
+    else:
+        models = request.app.state.MODELS
+
+    model_id = form_data["model"]
+    if model_id not in models:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Model not found",
+        )
+
+    # Check if the user has a custom task model
+    # If the user has a custom task model, use that model
+    task_model_id = get_task_model_id(
+        model_id,
+        request.app.state.config.TASK_MODEL,
+        request.app.state.config.TASK_MODEL_EXTERNAL,
+        models,
+    )
+
+    log.debug(
+        f"generating chat companies using model {task_model_id} for user {user.email} "
+    )
+
+    if request.app.state.config.COMPANIES_GENERATION_PROMPT_TEMPLATE != "":
+        template = request.app.state.config.COMPANIES_GENERATION_PROMPT_TEMPLATE
+    else:
+        template = DEFAULT_COMPANIES_GENERATION_PROMPT_TEMPLATE
+
+    content = companies_generation_template(
+        template, form_data["messages"], {"name": user.name}
+    )
+
+    payload = {
+        "model": task_model_id,
+        "messages": [{"role": "user", "content": content}],
+        "stream": False,
+        "metadata": {
+            **(request.state.metadata if hasattr(request.state, "metadata") else {}),
+            "task": str(TASKS.COMPANIES_GENERATION),
+            "task_body": form_data,
+            "chat_id": form_data.get("chat_id", None),
+        },
+    }
+    log.info(f"generate_chat_companies... payload: {payload}")
 
     try:
         return await generate_chat_completion(request, form_data=payload, user=user)

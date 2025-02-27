@@ -1181,6 +1181,37 @@ JSON format: { "tags": ["tag1", "tag2", "tag3"] }
 {{MESSAGES:END:6}}
 </chat_history>"""
 
+COMPANIES_GENERATION_PROMPT_TEMPLATE = PersistentConfig(
+    "COMPANIES_GENERATION_PROMPT_TEMPLATE",
+    "task.companies.prompt_template",
+    os.environ.get("COMPANIES_GENERATION_PROMPT_TEMPLATE", ""),
+)
+
+DEFAULT_COMPANIES_GENERATION_PROMPT_TEMPLATE = """### 작업 목표:
+채팅기록에서 기업명으로 추정되는 단어를 추출합니다.
+
+### 가이드라인:
+- 기업명이 하나도 발견되지 않으면 { "companies": [] }을 출력합니다.
+- 기업명이 발견되면 결과는 반드시 아래 예시와 같이 JSON 형식으로 출력합니다.
+- 채팅 기록에서 기업명을 대체하기 때문에 기업명은 반드시 채팅 기록에 나온 기업명을 사용합니다.
+- 다음과 같은 경우도 기업명으로 인식합니다:
+  * 주식회사, (주), Corp., Inc. 등이 포함된 법인명
+  * 계열사 표기 (예: XX그룹, XX홀딩스 등)
+- 다음은 제외합니다:
+  * 일반 명사로 사용된 경우
+
+### 예시:
+텍스트: 올해 삼성전자의 당기 순이익은 10조, LG전자의 당기 순이익은 1조로 추정됩니다.
+결과: { "companies": [ "삼성전자", "LG전자" ] }
+
+텍스트: 오늘도 날씨는 따듯하겠습니다.
+결과: { "companies": [] }
+
+### 채팅 기록:
+<chat_history>
+{{MESSAGES:END:2}}
+</chat_history>"""
+
 IMAGE_PROMPT_GENERATION_PROMPT_TEMPLATE = PersistentConfig(
     "IMAGE_PROMPT_GENERATION_PROMPT_TEMPLATE",
     "task.image.prompt_template",
@@ -1211,6 +1242,12 @@ ENABLE_TAGS_GENERATION = PersistentConfig(
     "ENABLE_TAGS_GENERATION",
     "task.tags.enable",
     os.environ.get("ENABLE_TAGS_GENERATION", "True").lower() == "true",
+)
+
+ENABLE_COMPANIES_GENERATION = PersistentConfig(
+    "ENABLE_COMPANIES_GENERATION",
+    "task.companies.enable",
+    os.environ.get("ENABLE_COMPANIES_GENERATION", "True").lower() == "true",
 )
 
 ENABLE_TITLE_GENERATION = PersistentConfig(

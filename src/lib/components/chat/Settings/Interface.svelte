@@ -20,6 +20,7 @@
 	// Addons
 	let titleAutoGenerate = true;
 	let autoTags = true;
+	let autoCompanies = true;
 
 	let responseAutoCopy = false;
 	let widescreenMode = false;
@@ -154,6 +155,11 @@
 		saveSettings({ autoTags });
 	};
 
+	const toggleAutoCompanies = async () => {
+		autoCompanies = !autoCompanies;
+		saveSettings({ autoCompanies });
+	};
+
 	const toggleRichTextInput = async () => {
 		richTextInput = !richTextInput;
 		saveSettings({ richTextInput });
@@ -208,6 +214,7 @@
 	onMount(async () => {
 		titleAutoGenerate = $settings?.title?.auto ?? true;
 		autoTags = $settings.autoTags ?? true;
+		autoCompanies = $settings.autoCompanies ?? true;
 
 		responseAutoCopy = $settings.responseAutoCopy ?? false;
 
@@ -489,6 +496,26 @@
 						type="button"
 					>
 						{#if autoTags === true}
+							<span class="ml-2 self-center">{$i18n.t('On')}</span>
+						{:else}
+							<span class="ml-2 self-center">{$i18n.t('Off')}</span>
+						{/if}
+					</button>
+				</div>
+			</div>
+
+			<div>
+				<div class=" py-0.5 flex w-full justify-between">
+					<div class=" self-center text-xs">{$i18n.t('Chat Companies Auto-Generation')}</div>
+
+					<button
+						class="p-1 px-3 text-xs flex rounded-sm transition"
+						on:click={() => {
+							toggleAutoCompanies();
+						}}
+						type="button"
+					>
+						{#if autoCompanies === true}
 							<span class="ml-2 self-center">{$i18n.t('On')}</span>
 						{:else}
 							<span class="ml-2 self-center">{$i18n.t('Off')}</span>

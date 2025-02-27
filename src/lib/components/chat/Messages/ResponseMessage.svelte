@@ -13,7 +13,7 @@
 
 	import { createNewFeedback, getFeedbackById, updateFeedbackById } from '$lib/apis/evaluations';
 	import { getChatById } from '$lib/apis/chats';
-	import { generateTags } from '$lib/apis';
+	import { generateTags, generateCompanies } from '$lib/apis';
 
 	import { config, models, settings, temporaryChatEnabled, TTSWorker, user } from '$lib/stores';
 	import { synthesizeOpenAISpeech } from '$lib/apis/audio';
@@ -483,11 +483,34 @@
 						return [];
 					}
 				);
-				console.log(tags);
 
 				if (tags) {
 					updatedMessage.annotation.tags = tags;
 					feedbackItem.data.tags = tags;
+
+					saveMessage(message.id, updatedMessage);
+					await updateFeedbackById(
+						localStorage.token,
+						updatedMessage.feedbackId,
+						feedbackItem
+					).catch((error) => {
+						toast.error(`${error}`);
+					});
+				}
+			}
+
+			if (!updatedMessage.annotation?.companies) {
+				// attempt to generate companies
+				const companies = await generateCompanies(localStorage.token, message.model, messages, chatId).catch(
+					(error) => {
+						console.error(error);
+						return [];
+					}
+				);
+
+				if (companies) {
+					updatedMessage.annotation.companies = companies;
+					feedbackItem.data.companies = companies;
 
 					saveMessage(message.id, updatedMessage);
 					await updateFeedbackById(

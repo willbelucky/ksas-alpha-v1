@@ -281,6 +281,12 @@
 				} else if (type === 'chat:tags') {
 					chat = await getChatById(localStorage.token, $chatId);
 					allTags.set(await getAllTags(localStorage.token));
+				} else if (type === 'chat:companies') {
+					for (const [id, content] of Object.entries(data)) {
+						if (history.messages[id]) {
+							history.messages[id].content = content;
+						}
+					}
 				} else if (type === 'message') {
 					message.content += data.content;
 				} else if (type === 'replace') {
@@ -1582,19 +1588,21 @@
 				chat_id: $chatId,
 				id: responseMessageId,
 
-				...(!$temporaryChatEnabled &&
-				(messages.length == 1 ||
+				background_tasks: {
+					companies_generation: $settings?.autoCompanies ?? true,
+					...(!$temporaryChatEnabled &&
+					(messages.length == 1 ||
 					(messages.length == 2 &&
 						messages.at(0)?.role === 'system' &&
 						messages.at(1)?.role === 'user')) &&
-				(selectedModels[0] === model.id || atSelectedModel !== undefined)
+					(selectedModels[0] === model.id || atSelectedModel !== undefined)
 					? {
-							background_tasks: {
-								title_generation: $settings?.title?.auto ?? true,
-								tags_generation: $settings?.autoTags ?? true
-							}
+						title_generation: $settings?.title?.auto ?? true,
+						tags_generation: $settings?.autoTags ?? true,
 						}
-					: {}),
+					: {}
+					),
+				},
 
 				...(stream && (model.info?.meta?.capabilities?.usage ?? false)
 					? {
